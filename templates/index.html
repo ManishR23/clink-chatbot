@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ClinkBot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      background-color: #f4f4f4;
+    }
+
+    h2 {
+      color: #333;
+    }
+
+    textarea {
+      width: 100%;
+      max-width: 600px;
+      height: 100px;
+      font-size: 16px;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      resize: vertical;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    #response {
+      margin-top: 20px;
+      padding: 15px;
+      max-width: 600px;
+      background-color: #fff;
+      border-left: 4px solid #4CAF50;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+    <h2>Ask ClinkBot 🧱</h2>
+  
+    <textarea id="userInput" placeholder="e.g. I'm building a 6ft x 2ft flowerbed..."></textarea><br>
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="resetChat()" style="margin-left: 10px; background-color: #f44336;">Reset Chat</button>
+  
+    <div id="response"></div>
+  
+    <script>
+      async function sendMessage() {
+        const input = document.getElementById("userInput").value;
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: input })
+        });
+        const data = await res.json();
+        document.getElementById("response").innerText = data.reply || data.error;
+      }
+  
+      async function resetChat() {
+        await fetch("/reset", { method: "POST" });
+        document.getElementById("response").innerText = "🔄 Conversation reset.";
+        document.getElementById("userInput").value = "";
+      }
+    </script>
+  </body>
+  
+</html>
