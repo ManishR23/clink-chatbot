@@ -3,25 +3,24 @@
 <head>
   <title>ClinkBot – Your Materials Assistant</title>
   <style>
-
     * {
-    box-sizing: border-box;
-    } 
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
       font-family: 'Segoe UI', sans-serif;
-      background-color: #3d5473; /* Page background */
+      background-color: #3d5473;
       color: #333;
       display: flex;
       flex-direction: column;
-      align-items: center;
+      min-height: 100vh;
     }
 
     header {
       width: 100%;
-      background-color: #f4f6f8;  /* Light gray header */
-      padding: 20px 0;
+      background-color: #f4f6f8;
+      padding: 10px 0;
       display: flex;
       justify-content: center;
     }
@@ -30,51 +29,37 @@
       height: 60px;
     }
 
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      padding: 20px;
+    }
+
     .container {
-      background: #f4f6f8;
+      background: white;
       border-radius: 12px;
-      margin-top: 40px;
       padding: 30px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
       width: 90%;
       max-width: 600px;
       text-align: center;
     }
 
-    #chatWindow {
-      background: #ffffff;
-      width: 100%;
-      margin-top: 20px;
-      padding: 12px;
-      border: 1px solid #ffffff;
-      border-radius: 8px;
-      height: 300px;
-      overflow-y: auto;
-      text-align: left;
-    }
-
-    .user-msg {
-      background: #e6f0ff;
-      padding: 10px;
-      border-radius: 6px;
-      margin-bottom: 8px;
-    }
-
-    .bot-msg {
-      background: #f0f4f8;
-      padding: 10px;
-      border-radius: 6px;
-      margin-bottom: 8px;
+    h2 {
+      margin-top: 0;
     }
 
     textarea {
       width: 100%;
-      margin-top: 15px;
+      height: 100px;
       padding: 10px;
+      border: 1px solid #ccc;
       border-radius: 6px;
       font-size: 16px;
-      resize: none;
-      border: 1px solid #ccc;
+      resize: vertical;
     }
 
     button {
@@ -97,40 +82,41 @@
       margin-left: 10px;
     }
 
-    @media (max-width: 600px) {
-    .container {
+    #response {
       margin-top: 20px;
-      padding: 20px;
-      width: 95%;
+      text-align: left;
+      white-space: pre-wrap;
+      background: #f0f4f8;
+      padding: 15px;
+      border-left: 4px solid #3d5473;
+      border-radius: 6px;
     }
 
-    textarea {
-      font-size: 16px;
-      height: 80px;
-    }
+    @media (max-width: 600px) {
+      .container {
+        width: 95%;
+        padding: 20px;
+      }
 
-    button {
-      width: 100%;
-      margin-top: 10px;
-    }
+      header img {
+        height: 48px;
+      }
 
-    .reset-btn {
-      margin-left: 0;
-      margin-top: 10px;
-    }
+      textarea {
+        height: 120px;
+        font-size: 16px;
+      }
 
-    #chatWindow {
-      height: 250px;
-    }
+      button {
+        width: 100%;
+        margin-top: 10px;
+      }
 
-    header img {
-      height: 50px;
+      .reset-btn {
+        margin-left: 0;
+      }
     }
-  }
-
   </style>
-
-  
 </head>
 <body>
 
@@ -138,47 +124,37 @@
     <img src="{{ url_for('static', filename='clink-logo.png') }}" alt="Clink Logo">
   </header>
 
-  <div class="container">
-    <h2>Ask ClinkBot 🧱</h2>
-
-    <div id="chatWindow"></div>
-
-    <textarea id="userInput" placeholder="Type your message here..."></textarea><br>
-    <button class="send-btn" onclick="sendMessage()">Send</button>
-    <button class="reset-btn" onclick="resetChat()">Reset</button>
-  </div>
+  <main>
+    <div class="container">
+      <h2>Ask ClinkBot 🧱</h2>
+      <textarea id="userInput" placeholder="e.g. I’m building a 6ft x 2ft flowerbed..."></textarea><br>
+      <button class="send-btn" onclick="sendMessage()">Send</button>
+      <button class="reset-btn" onclick="resetChat()">Reset</button>
+      <div id="response"></div>
+    </div>
+  </main>
 
   <script>
     async function sendMessage() {
-      const input = document.getElementById("userInput");
-      const message = input.value.trim();
-      if (!message) return;
-
-      appendMessage("You", message);
+      const input = document.getElementById("userInput").value;
+      if (!input.trim()) {
+        document.getElementById("response").innerText = "Please enter a message.";
+        return;
+      }
 
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message: input })
       });
 
       const data = await res.json();
-      appendMessage("ClinkBot", data.reply || data.error);
-      input.value = "";
-    }
-
-    function appendMessage(sender, text) {
-      const chatWindow = document.getElementById("chatWindow");
-      const msgDiv = document.createElement("div");
-      msgDiv.className = sender === "You" ? "user-msg" : "bot-msg";
-      msgDiv.innerHTML = `<strong>${sender}:</strong> ${text}`;
-      chatWindow.appendChild(msgDiv);
-      chatWindow.scrollTop = chatWindow.scrollHeight;
+      document.getElementById("response").innerText = data.reply || data.error;
     }
 
     async function resetChat() {
       await fetch("/reset", { method: "POST" });
-      document.getElementById("chatWindow").innerHTML = "";
+      document.getElementById("response").innerText = "🔄 Conversation reset.";
       document.getElementById("userInput").value = "";
     }
   </script>
