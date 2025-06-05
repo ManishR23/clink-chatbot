@@ -1,3 +1,4 @@
-name,category,color,price_clink,price_home_depot,available,length_in,width_in,height_in
-Standard Brick,brick,red,0.50,1.30,200,9.5,2.5,2.75
-Standard Brick,brick,white,0.70,2.00,950,9.5,2.5,2.75
+name,category,color,color_id,price_clink,price_home_depot,available,length_in,width_in,height_in,num_holes
+Mixed Rustic Red Bricks,brick,red,#B65A43,0.55,1.30,200,9.5,2.5,2.75,4
+White Clay Bricks,brick,white,#E8E4DA,0.75,2.00,950,9.5,2.5,2.75,4
+Earthy Brown Bricks,brick,brown,#8B5C3A,0.50,1.30,950,9.5,2.5,2.75,4
