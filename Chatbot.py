@@ -3,6 +3,9 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
+from flask import session
+from flask_session import Session
+
 # Inventory of Clink
 import csv
 def load_inventory():
@@ -25,6 +28,12 @@ inventory_data = load_inventory()
 # Chatbot response
 load_dotenv()
 app = Flask(__name__)
+
+# Separate user data by sessions
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY")
+app.config["SESSION_TYPE"] = "filesystem" # --> Need to change for scalability
+Session(app)
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
@@ -59,8 +68,9 @@ if they ask whats the price at lowes and you dont have it, say you dont know but
 - also, suggest a little bit of excess with every purchase. for example, if you calculate someone needs 74 bricks, say that, but suggest 
 they buy like 80 in case of breakages and other unaccounted imperfections
 - before you do any calculations, make sure to narrow it down with the customer. can this be built from wood, metal, brick? if so, ask! Dont always assume brick
-what color do they want? recommend 5 vs 4 vs 3 holes depending on the use case, etc so we narrow it down then, ask which of the options youve narrowed it down to do they want. Make it methodical, we're 
+what color do they want - provide them with options of what we have! recommend 5 vs 4 vs 3 holes depending on the use case, etc so we narrow it down then, ask which of the options youve narrowed it down to do they want. Make it methodical, we're 
 trying to make this extremely frictionless for the customer. Basically hand the product to them and always mention the title and color.
+- keep those math errors as far away from this as possible when calculating. id rather you be slower than wrong.
 """
 
 
@@ -70,7 +80,6 @@ trying to make this extremely frictionless for the customer. Basically hand the 
 def home():
     return render_template("index.html")
 
-convo_history = []
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -78,9 +87,12 @@ def chat():
     if not user_input:
         return jsonify({"error": "No input provided"}), 400
     
-    convo_history.append({"role": "user", "content": user_input})
+    if "convo_history" not in session:
+        session["convo_history"] = []
+    
+    session["convo_history"].append({"role": "user", "content": user_input})
 
-    full_message = [{"role": "system", "content": SYSTEM_PROMPT}] + convo_history
+    full_message = [{"role": "system", "content": SYSTEM_PROMPT}] + session["convo_history"]
 
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
@@ -89,18 +101,17 @@ def chat():
     )
 
     reply = response.choices[0].message.content
-    convo_history.append({"role": "assistant", "content": reply})
+    session["convo_history"].append({"role": "assistant", "content": reply})
+    session.modified = True
 
     return jsonify({"reply": reply})
 
 
 @app.route("/reset", methods=["POST"])
 def reset_chat():
-    global conversation_history
-    conversation_history = []  # Clear the conversation
+    session.pop("convo_history", None)
     return jsonify({"status": "Conversation reset."})
 
-    
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
