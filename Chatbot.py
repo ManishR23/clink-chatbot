@@ -3,6 +3,9 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
+import math
+import re
+
 # Inventory of Clink
 import csv
 def load_inventory():
@@ -21,6 +24,38 @@ def load_inventory():
 
 
 inventory_data = load_inventory()
+
+# calculate the cost function
+def calculate_cost(name, quantity):
+    for item in inventory_data:
+        if item["name"].lower() == name.lower():
+            clink_price = item["price_clink"] * quantity
+            retail_price = item["price_home_depot"] * quantity if item["price_home_depot"] else None
+            savings = retail_price - clink_price if retail_price else None
+
+            rec_quantity = int(math.ceil(quantity * 1.1 / 5.0) * 5)
+            rec_clink_price = item["price_clink"] * rec_quantity
+            rec_home_price = item["price_home_depot"] * rec_quantity if item["price_home_depot"] else None
+            rec_savings = rec_home_price - rec_clink_price if rec_home_price else None
+
+            return {
+                "Material Name": name,
+                "Requested Quantity": quantity,
+                "Clink Price": round(clink_price, 2),
+                "Retail Price": round(retail_price, 2) if retail_price else "N/A",
+                "Savings": round(savings, 2) if savings else "N/A",
+
+                "Recommended Quantity": rec_quantity,
+                "Recommended Price Clink": round(rec_clink_price, 2),
+                "Recommended Price Home Depot": round(rec_home_price, 2) if rec_home_price else "N/A",
+                "Recommended Savings": round(rec_savings, 2) if rec_savings else "N/A"
+            }
+    return None
+    
+
+
+
+
 
 # Chatbot response
 load_dotenv()
@@ -43,24 +78,39 @@ Here is Clink's current inventory:
 Each brick is 9.5in x 2.5in x 2.75in unless otherwise noted.
 
 Your job:
-1. Estimate how many units the user needs based on their project
-2. Recommend a color Clink has in stock
-3. Compare prices with Home Depot
-4. If Clink doesn’t have enough, say how many they’ll need to get elsewhere
-5. Respond clearly and kindly
+1. Estimate how many units the user needs based on their project.
+2. Recommend a color that Clink currently has in stock.
+3. Compare prices with Home Depot.
+4. If Clink doesn’t have enough, explain how many the user will need to get elsewhere.
+5. Respond clearly, kindly, and helpfully.
 
-- Remember that every time you calculate a price, make sure to show the comparison of Home Depot - its crucial, tell them
-exactly the $ amount for how much they saved
-- Keep these answers short and sweet please, we want it to be as frictionless for the customer as possible
-- Don't automatically assume bricks are what is needed despite it being what we carry. if the person says theyre 
-building a bench for example, ask questions to see if theyd like it to be wood, brick, metal, etc
-- Don't hallucinate, if you don't know the answer to something, say you don't know and offer an alternative. For example,
-if they ask whats the price at lowes and you dont have it, say you dont know but Home Depot's price is XYZ
-- also, suggest a little bit of excess with every purchase. for example, if you calculate someone needs 74 bricks, say that, but suggest 
-they buy like 80 in case of breakages and other unaccounted imperfections
-- before you do any calculations, make sure to narrow it down with the customer. can this be built from wood, metal, brick? if so, ask! Dont always assume brick
-what color do they want? recommend 5 vs 4 vs 3 holes depending on the use case, etc so we narrow it down then, ask which of the options youve narrowed it down to do they want. Make it methodical, we're 
-trying to make this extremely frictionless for the customer. Basically hand the product to them and always mention the title and color.
+General guidance:
+- Keep responses short and simple — we want the experience to feel easy and frictionless.
+- Don’t assume bricks are the right material just because it’s what we carry. If the user mentions building something like a bench, first ask whether they’d prefer wood, brick, metal, etc.
+- Never hallucinate. If you don’t know the answer, say so. For example, if the user asks for Lowe’s pricing and we don’t have it, respond with: “I’m not sure about Lowe’s, but here’s what Home Depot charges.”
+- Before doing *any* calculations, help the user narrow down what they want: material type, color, and hole count (e.g., 3 vs 4 vs 5). Once narrowed, ask which of those they prefer — make the process methodical and helpful.
+- Always mention the product name and color when making a recommendation.
+
+Cost calculations:
+- If the user’s request requires a cost calculation, insert this hidden tag somewhere in your reply (don’t explain it):  
+  [calculate_cost(name="Material Name", quantity=##)]
+
+- Before giving a final price:
+  - First, check how many bricks we have in stock for that specific color.
+  - If the requested quantity is **greater than what we have**, do **not** present a savings comparison.
+  - Instead, do one of the following:
+    1. Suggest a different color or product that has enough stock.
+    2. If no alternatives exist, offer to sell them the full quantity we do have and suggest sourcing the rest elsewhere.
+
+- When presenting price and savings:
+  - Ease into it conversationally. Say things like:
+    “Let me check how many we have first...”
+    “Looks like we’ve got enough of that color!”
+    “Here’s what that would cost...”
+  - Only calculate and present savings if the full quantity is available.
+
+Above all, make the experience feel guided, friendly, and low-effort for the customer. ClinkBot is here to help.
+
 """
 
 
@@ -89,6 +139,34 @@ def chat():
     )
 
     reply = response.choices[0].message.content
+
+    # GPT-cooked regex to find the hidden function call pattern 
+    match = re.search(r"\[calculate_cost\(name=['\"](.+?)['\"],\s*quantity=(\d+)\)\]", reply)
+    if match:
+        name = match.group(1)
+        quantity = int(match.group(2))
+        result = calculate_cost(name, quantity)
+
+        if result:
+            natural_reply = (
+                f"You will need {result['Requested Quantity']} {result['Material Name']} for your project."
+                f"Clink charges ${result['Clink Price']} compared to ${result['Retail Price']} at Home Depot. "
+                f"You're saving ${result['Savings']} with Clink!\n\n"
+                f"To be safe, we recommend ordering {result['Recommended Quantity']} "
+                f"in case of breakage or cuts.\n"
+                f"Total cost would be ${result['Recommended Price Clink']} with Clink vs "
+                f"${result['Recommended Price Home Depot']} at Home Depot — "
+                f"saving you ${result['Recommended Savings']}."
+            )
+            convo_history.append({"role": "assistant", "content": natural_reply})
+            return jsonify({"reply": natural_reply})
+
+        else:
+            error_msg = "Sorry, I couldn’t find that material in our inventory."
+            convo_history.append({"role": "assistant", "content": error_msg})
+            return jsonify({"reply": error_msg})
+
+    # Normal Response
     convo_history.append({"role": "assistant", "content": reply})
 
     return jsonify({"reply": reply})
@@ -96,8 +174,8 @@ def chat():
 
 @app.route("/reset", methods=["POST"])
 def reset_chat():
-    global conversation_history
-    conversation_history = []  # Clear the conversation
+    global convo_history
+    convo_history = []  # Clear the conversation
     return jsonify({"status": "Conversation reset."})
 
     
