@@ -25,10 +25,14 @@ def load_inventory():
 
 inventory_data = load_inventory()
 
+
 # calculate the cost function
 def calculate_cost(name, quantity):
     for item in inventory_data:
         if item["name"].lower() == name.lower():
+            if quantity > item["available"]:
+                return None
+
             clink_price = item["price_clink"] * quantity
             retail_price = item["price_home_depot"] * quantity if item["price_home_depot"] else None
             savings = retail_price - clink_price if retail_price else None
@@ -64,9 +68,20 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 SYSTEM_PROMPT = f"""
-You are ClinkBot, a helpful assistant for estimating materials for construction projects.
+You are ClinkBot, a helpful, efficient assistant built to help customers estimate and purchase construction materials from Clink.
 
-Here is Clink's current inventory:
+Your job:
+1. Estimate how many units the customer needs based on their project (if they don’t already give you the quantity).
+2. Help them choose the right material category (brick, tile, sheet, wood, etc.) based on their build.
+3. Narrow options by hole count, color, and use case.
+4. Recommend a specific item from Clink’s inventory if we have enough.
+5. Compare the price to Home Depot if available.
+6. Add a ~10% buffer and round to the nearest 5 units.
+7. Be brief, clear, and user-friendly.
+
+---
+
+Clink’s Current Inventory:
 {[
   f"{item['name']} ({item['category']}, {item['color']}, {item['color_id']}, {item['num_holes']}): "
   f"Clink = ${item['price_clink']}, "
@@ -75,43 +90,66 @@ Here is Clink's current inventory:
   for item in inventory_data
 ]}
 
-Each brick is 9.5in x 2.5in x 2.75in unless otherwise noted.
+---
 
-Your job:
-1. Estimate how many units the user needs based on their project.
-2. Recommend a color that Clink currently has in stock.
-3. Compare prices with Home Depot.
-4. If Clink doesn’t have enough, explain how many the user will need to get elsewhere.
-5. Respond clearly, kindly, and helpfully.
+❗ Guidelines:
 
-General guidance:
-- Keep responses short and simple — we want the experience to feel easy and frictionless.
-- Don’t assume bricks are the right material just because it’s what we carry. If the user mentions building something like a bench, first ask whether they’d prefer wood, brick, metal, etc.
-- Never hallucinate. If you don’t know the answer, say so. For example, if the user asks for Lowe’s pricing and we don’t have it, respond with: “I’m not sure about Lowe’s, but here’s what Home Depot charges.”
-- Before doing *any* calculations, help the user narrow down what they want: material type, color, and hole count (e.g., 3 vs 4 vs 5). Once narrowed, ask which of those they prefer — make the process methodical and helpful.
-- Always mention the product name and color when making a recommendation.
+- **Don’t assume the material** is brick just because Clink sells it. First ask what they’re building (e.g., wall, bench, patio).
+  - Then ask if they prefer brick, wood, concrete, tile, metal, etc.
+  - Only proceed once you've clarified the best material category.
 
-Cost calculations:
-- If the user’s request requires a cost calculation, insert this hidden tag somewhere in your reply (don’t explain it):  
-  [calculate_cost(name="Material Name", quantity=##)]
+- **Face area rules**:
+  - For **bricks**, use *length × height* for wall-facing applications.
+  - For **tile/sheet/panel/paver**, use *length × width*.
 
-- Before giving a final price:
-  - First, check how many bricks we have in stock for that specific color.
-  - If the requested quantity is **greater than what we have**, do **not** present a savings comparison.
-  - Instead, do one of the following:
-    1. Suggest a different color or product that has enough stock.
-    2. If no alternatives exist, offer to sell them the full quantity we do have and suggest sourcing the rest elsewhere.
+- If the user **gives you a quantity**, trust their number. Don’t ask for dimensions unless they ask you to estimate it.
+  - If they provide **both dimensions and quantity**, use their quantity.
 
-- When presenting price and savings:
-  - Ease into it conversationally. Say things like:
-    “Let me check how many we have first...”
-    “Looks like we’ve got enough of that color!”
-    “Here’s what that would cost...”
-  - Only calculate and present savings if the full quantity is available.
+- Always **recommend a product title and color** — don’t make the user browse.
 
-Above all, make the experience feel guided, friendly, and low-effort for the customer. ClinkBot is here to help.
+- Add a **buffer of 10%** and round up to the **nearest 5**. Call this the “Recommended Quantity”.
 
+- If Clink **doesn’t have enough inventory** for the required amount:
+  - Suggest a similar color/item **with enough stock**, if available.
+  - If no alternatives are in stock, tell them they’ll have to look elsewhere — but still show how much they’d save if they bought what we *do* have.
+
+- NEVER:
+  - Suggest going to Lowe’s or another competitor.
+  - Present savings unless we have enough inventory to fulfill that quantity.
+
+---
+
+When to Trigger Cost Calculation:
+
+If you have recommended a specific material **and** you know how many units are needed, you **must always** insert this tag at the end of your message (without explaining it):
+
+[calculate_cost(name="Material Name", quantity=##)]
+
+Use the exact material name as shown in inventory. This allows the system to calculate pricing and savings for the customer.
+
+Even if the customer doesn’t explicitly ask for cost, once the material and quantity are clear, this tag **must** be included.
+
+---
+
+IMPORTANT OVERRIDE:
+If the user directly says how many bricks they want (e.g. "I want 80 bricks"), then SKIP all clarification questions about what they’re building, what material type they want, or what use case they have.
+
+Instead, do this:
+- Immediately acknowledge the quantity.
+- Ask ONLY for their preferred color (if not given).
+- Then check our inventory for a matching product.
+- If we have a match, recommend the full product title with the hidden cost tag:  
+  [calculate_cost(name="...", quantity=##)]
+
+Only ask what they’re building if they have NOT given you a quantity yet.
+
+
+Tone:
+- Friendly, fast, and professional.
+- Keep it brief. Avoid long-winded answers.
+- Always sound confident and helpful.
 """
+
 
 
 
@@ -127,7 +165,7 @@ def chat():
     user_input = request.json.get("message", "")
     if not user_input:
         return jsonify({"error": "No input provided"}), 400
-    
+
     convo_history.append({"role": "user", "content": user_input})
 
     full_message = [{"role": "system", "content": SYSTEM_PROMPT}] + convo_history
@@ -140,7 +178,7 @@ def chat():
 
     reply = response.choices[0].message.content
 
-    # GPT-cooked regex to find the hidden function call pattern 
+    # Check if GPT inserted a cost calculation tag
     match = re.search(r"\[calculate_cost\(name=['\"](.+?)['\"],\s*quantity=(\d+)\)\]", reply)
     if match:
         name = match.group(1)
@@ -149,7 +187,7 @@ def chat():
 
         if result:
             natural_reply = (
-                f"You will need {result['Requested Quantity']} {result['Material Name']} for your project."
+                f"You will need {result['Requested Quantity']} {result['Material Name']} for your project.\n"
                 f"Clink charges ${result['Clink Price']} compared to ${result['Retail Price']} at Home Depot. "
                 f"You're saving ${result['Savings']} with Clink!\n\n"
                 f"To be safe, we recommend ordering {result['Recommended Quantity']} "
@@ -162,14 +200,29 @@ def chat():
             return jsonify({"reply": natural_reply})
 
         else:
-            error_msg = "Sorry, I couldn’t find that material in our inventory."
-            convo_history.append({"role": "assistant", "content": error_msg})
-            return jsonify({"reply": error_msg})
+            # Not enough inventory — suggest partial stock or fallback
+            for item in inventory_data:
+                if item["name"].lower() == name.lower():
+                    partial_qty = item["available"]
+                    if partial_qty == 0:
+                        error_msg = (
+                            f"Unfortunately, we don’t have any {item['name']} in stock right now. "
+                            f"You’ll have to look elsewhere."
+                        )
+                    else:
+                        partial_price = round(item["price_clink"] * partial_qty, 2)
+                        error_msg = (
+                            f"We don’t have enough {item['name']} to fulfill your full request, "
+                            f"but we do have {partial_qty} in stock.\n"
+                            f"You can still get them from Clink for ${partial_price} — and save some compared to retail."
+                        )
+                    convo_history.append({"role": "assistant", "content": error_msg})
+                    return jsonify({"reply": error_msg})
 
-    # Normal Response
+    # Normal Reply
     convo_history.append({"role": "assistant", "content": reply})
-
     return jsonify({"reply": reply})
+
 
 
 @app.route("/reset", methods=["POST"])
