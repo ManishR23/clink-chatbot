@@ -1,10 +1,13 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
 import math
 import re
+
+from datetime import timedelta
+import uuid
 
 # Inventory of Clink
 import csv
@@ -64,6 +67,9 @@ def calculate_cost(name, quantity):
 # Chatbot response
 load_dotenv()
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "super-secret-key")
+app.permanent_session_lifetime = timedelta(days=1)
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
@@ -152,11 +158,16 @@ Tone:
 
 
 
-
-
 @app.route("/")
 def home():
     return render_template("index.html")
+
+@app.before_request
+def ensure_session():
+    if "session_id" not in session:
+        session["session_id"] = str(uuid.uuid4())
+    if "history" not in session:
+        session["history"] = []
 
 convo_history = []
 
@@ -165,10 +176,11 @@ def chat():
     user_input = request.json.get("message", "")
     if not user_input:
         return jsonify({"error": "No input provided"}), 400
+    
+    history = session["history"]
+    history.append({"role": "user", "content": user_input})
 
-    convo_history.append({"role": "user", "content": user_input})
-
-    full_message = [{"role": "system", "content": SYSTEM_PROMPT}] + convo_history
+    full_message = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
     response = client.chat.completions.create(
         model="gpt-4.1-nano",
@@ -196,7 +208,8 @@ def chat():
                 f"${result['Recommended Price Home Depot']} at Home Depot — "
                 f"saving you ${result['Recommended Savings']}."
             )
-            convo_history.append({"role": "assistant", "content": natural_reply})
+            history.append({"role": "assistant", "content": natural_reply})
+            session["history"] = history
             return jsonify({"reply": natural_reply})
 
         else:
@@ -216,19 +229,20 @@ def chat():
                             f"but we do have {partial_qty} in stock.\n"
                             f"You can still get them from Clink for ${partial_price} — and save some compared to retail."
                         )
-                    convo_history.append({"role": "assistant", "content": error_msg})
+                    history.append({"role": "assistant", "content": error_msg})
+                    session["history"] = history
                     return jsonify({"reply": error_msg})
 
     # Normal Reply
-    convo_history.append({"role": "assistant", "content": reply})
+    history.append({"role": "assistant", "content": reply})
+    session["history"] = history
     return jsonify({"reply": reply})
 
 
 
 @app.route("/reset", methods=["POST"])
 def reset_chat():
-    global convo_history
-    convo_history = []  # Clear the conversation
+    session["history"] = []
     return jsonify({"status": "Conversation reset."})
 
     
